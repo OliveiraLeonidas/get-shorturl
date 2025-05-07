@@ -4,6 +4,7 @@ import com.oliveira.shortener.domain.entities.ShortUrl;
 import com.oliveira.shortener.domain.models.CreateShortUrl;
 import com.oliveira.shortener.domain.models.ShortUrlDto;
 import com.oliveira.shortener.domain.repository.ShortUrlRepository;
+import com.oliveira.shortener.domain.repository.UserRepository;
 import com.oliveira.shortener.web.ApplicationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,7 +13,10 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+
+import static java.time.temporal.ChronoUnit.DAYS;
 
 @Service
 @Transactional(readOnly = true)
@@ -21,11 +25,13 @@ public class ShortUrlService {
     private final ShortUrlRepository shortUrlRepository;
     private final EntityMapper entityMapper;
     private final ApplicationProperties properties;
+    private final UserRepository userRepository;
 
-    public ShortUrlService(ShortUrlRepository shortUrlRepository, EntityMapper entityMapper, ApplicationProperties properties){
+    public ShortUrlService(ShortUrlRepository shortUrlRepository, EntityMapper entityMapper, ApplicationProperties properties, UserRepository userRepository){
         this.shortUrlRepository = shortUrlRepository;
         this.entityMapper = entityMapper;
         this.properties = properties;
+        this.userRepository = userRepository;
     }
 
     public List<ShortUrlDto> findAllPublicShortUrls() {
@@ -47,10 +53,19 @@ public class ShortUrlService {
         ShortUrl shortUrl = new ShortUrl();
         shortUrl.setOriginalUrl(createShortUrl.originalUrl());
         shortUrl.setShortKey(shortKey);
-        shortUrl.setCreatedBy(null);
-        shortUrl.setIsPrivate(false);
+
+        if(createShortUrl.userId() == null) {
+            shortUrl.setCreatedBy(null);
+            shortUrl.setIsPrivate(false);
+            shortUrl.setExpiresAt(Instant.now().plus(properties.defaultExpiryInDays(), DAYS));
+        } else {
+            shortUrl.setCreatedBy(userRepository.findById(createShortUrl.userId()).orElseThrow());
+            shortUrl.setIsPrivate(createShortUrl.isPrivate() != null && createShortUrl.isPrivate());
+            shortUrl.setExpiresAt(createShortUrl.expirationInDays() != null ? Instant.now().plus(createShortUrl.expirationInDays(), DAYS) :  null);
+        }
+
+
         shortUrl.setClickCount(0L);
-        shortUrl.setExpiresAt(Instant.now().plus(properties.defaultExpiryInDays(), ChronoUnit.DAYS));
         shortUrl.setCreatedAt(Instant.now());
         shortUrlRepository.save(shortUrl);
         return entityMapper.toShortUrlDto(shortUrl);
@@ -79,13 +94,16 @@ public class ShortUrlService {
 
 
     @Transactional
-    public Optional<ShortUrlDto> accessShortUrl(String shortKey) {
+    public Optional<ShortUrlDto> accessShortUrl(String shortKey, Long userId) {
         Optional<ShortUrl> shortUrlOptional = shortUrlRepository.findByShortKey(shortKey);
         if(shortUrlOptional.isEmpty()) {
             return Optional.empty();
         }
         ShortUrl shortUrl = shortUrlOptional.get();
         if(shortUrl.getExpiresAt() != null && shortUrl.getExpiresAt().isBefore(Instant.now())) {
+            return Optional.empty();
+        }
+        if(shortUrl.getIsPrivate() != null && shortUrl.getCreatedBy() != null && !Objects.equals(shortUrl.getCreatedBy().getId(), userId)) {
             return Optional.empty();
         }
         shortUrl.setClickCount(shortUrl.getClickCount()+1);

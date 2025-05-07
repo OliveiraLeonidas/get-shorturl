@@ -2,6 +2,7 @@ package com.oliveira.shortener.web.controller;
 
 
 import com.oliveira.shortener.domain.entities.ShortUrl;
+import com.oliveira.shortener.domain.entities.User;
 import com.oliveira.shortener.domain.exceptions.ShortUrlNotFoundException;
 import com.oliveira.shortener.domain.models.CreateShortUrl;
 import com.oliveira.shortener.domain.models.ShortUrlDto;
@@ -27,10 +28,12 @@ public class HomeController {
 
     private final ShortUrlService shortUrlService;
     private final ApplicationProperties properties;
+    private final SecurityUtils securityUtils;
 
-    public HomeController(ShortUrlService shortUrlService, ApplicationProperties properties) {
+    public HomeController(ShortUrlService shortUrlService, ApplicationProperties properties, SecurityUtils securityUtils) {
         this.shortUrlService = shortUrlService;
         this.properties = properties;
+        this.securityUtils = securityUtils;
     }
 
 
@@ -39,7 +42,7 @@ public class HomeController {
         List<ShortUrlDto> shortUrls = shortUrlService.findAllPublicShortUrls();
         model.addAttribute("shortUrls", shortUrls);
         model.addAttribute("baseUrl", properties.baseUrl());
-        model.addAttribute("createShortUrlForm", new CreateShortUrlForm(""));
+        model.addAttribute("createShortUrlForm", new CreateShortUrlForm("", false, null));
         return "index";
     }
 
@@ -56,7 +59,12 @@ public class HomeController {
         }
 
         try {
-            CreateShortUrl createShortUrl = new CreateShortUrl(form.originalUrl());
+            Long userId = securityUtils.getCurrentUserId();
+            CreateShortUrl createShortUrl = new CreateShortUrl(
+                    form.originalUrl(),
+                    form.isPrivate(),
+                    form.expirationInDays(),
+                    userId);
             var shortDto = shortUrlService.createShortUrl(createShortUrl);
             redirectAttributes.addFlashAttribute("successMessage", "Short URL created successfully " + properties.baseUrl() +"/s/"+shortDto.shortKey());
         }
@@ -69,12 +77,18 @@ public class HomeController {
 
     @GetMapping("/s/{shortKey}")
     String redirectToOriginalUrl(@PathVariable String shortKey) {
-        Optional<ShortUrlDto> shortUrlDtoOptional = shortUrlService.accessShortUrl(shortKey);
+        Long userId = securityUtils.getCurrentUserId();
+        Optional<ShortUrlDto> shortUrlDtoOptional = shortUrlService.accessShortUrl(shortKey, userId);
         if(shortUrlDtoOptional.isEmpty()) {
             throw new ShortUrlNotFoundException("Invalid short key: "+shortKey);
         }
         ShortUrlDto shortUrlDto = shortUrlDtoOptional.get();
         return "redirect:"+shortUrlDto.originalUrl();
+    }
+
+    @GetMapping("/login")
+    String loginForm() {
+        return "login";
     }
 
 }
