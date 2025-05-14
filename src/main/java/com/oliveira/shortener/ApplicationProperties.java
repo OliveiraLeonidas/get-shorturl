@@ -1,4 +1,4 @@
-package com.oliveira.shortener.web;
+package com.oliveira.shortener;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -18,6 +18,8 @@ public record ApplicationProperties(
         @Max(365)
         int defaultExpiryInDays,
         @DefaultValue("true")
-        boolean validateOriginalUrl
+        boolean validateOriginalUrl,
+        @DefaultValue("10")
+        int pageSize
         ) {
 }
